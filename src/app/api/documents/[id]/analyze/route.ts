@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { HeaderUtils } from 'coze-coding-dev-sdk';
 import type { AnalysisCompletePayload } from '@/lib/document-types';
 import {
   analyzeChartData,
@@ -19,7 +18,7 @@ interface RouteContext {
   params: Promise<{ id: string }>;
 }
 
-export async function POST(request: NextRequest, context: RouteContext): Promise<Response> {
+export async function POST(_request: NextRequest, context: RouteContext): Promise<Response> {
   const { id } = await context.params;
   const session = getDocumentSession(id);
 
@@ -30,7 +29,6 @@ export async function POST(request: NextRequest, context: RouteContext): Promise
     );
   }
 
-  const customHeaders = HeaderUtils.extractForwardHeaders(request.headers);
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const send = (event: string, data: unknown) => {

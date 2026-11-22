@@ -1,11 +1,10 @@
-import { Config, LLMClient } from 'coze-coding-dev-sdk';
 import { z } from 'zod';
+import { streamDeepSeek } from '@/server/deepseek';
 import type {
   ChartAnalysis,
   ContentAnalysis,
 } from '@/lib/document-types';
 
-const MODEL = 'doubao-seed-2-0-lite-260215';
 const MAX_CONTEXT_LENGTH = 90000;
 
 const summarySchema = z.object({
@@ -67,24 +66,17 @@ function parseJsonObject(content: string): unknown {
 }
 
 async function callJson<T>(
-  customHeaders: Record<string, string>,
   systemPrompt: string,
   userPrompt: string,
   schema: z.ZodType<T>,
 ): Promise<T> {
-  const client = new LLMClient(new Config(), customHeaders);
-  const stream = client.stream(
-    [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: userPrompt },
-    ],
-    { model: MODEL, temperature: 0.1, thinking: 'disabled' },
-  );
+  const stream = streamDeepSeek([
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: userPrompt },
+  ]);
   let content = '';
 
-  for await (const chunk of stream) {
-    if (chunk.content) content += chunk.content.toString();
-  }
+  for await (const delta of stream) content += delta;
 
   return schema.parse(parseJsonObject(content));
 }
@@ -95,10 +87,8 @@ function documentPrompt(task: string, structuredText: string): string {
 
 export async function analyzeSummaryAndKeywords(
   structuredText: string,
-  customHeaders: Record<string, string>,
 ): Promise<{ summary: string; keywords: string[] }> {
   const result = await callJson(
-    customHeaders,
     '你是严谨的中文文档摘要编辑。只依据原文，不补充外部知识，不编造事实。',
     documentPrompt(
       '本阶段只完成“摘要与关键词”任务。生成一段不超过200个汉字（含标点也不得超过200字符）的中文摘要，并提取最多5个关键词。仅输出 JSON：{"summary":"...","keywords":["..."]}。不要输出 Markdown，不要执行其他分析任务。',
@@ -188,10 +178,8 @@ function validateAndNormalizeChart(
 
 export async function analyzeChartData(
   structuredText: string,
-  customHeaders: Record<string, string>,
 ): Promise<ChartAnalysis> {
   const result = await callJson(
-    customHeaders,
     '你是审慎的数据审校员。你只能提取原文明示的数据，禁止估算、插值、补全或编造任何数值。',
     documentPrompt(
       '本阶段只完成“数据与图表判断”任务。先判断原文是否确实存在可比较的量化数据或时间趋势，例如多期指标、同比环比、多个主体同类指标。没有可比较信息时必须返回 hasChart=false。确实存在时：时间趋势选 line，多主体对比选 bar，明细数据选 table。每个数值必须逐字来自原文。仅输出 JSON：{"hasChart":true,"reason":"数据依据","data":{"title":"...","type":"line|bar|table","categories":["..."],"series":[{"name":"...","data":[1,2]}],"unit":"可选单位"}}；无图表时 data=null。categories 至少2项，每个 series.data 与 categories 等长。不要输出 Markdown，不要做摘要或内容解析。',
@@ -205,10 +193,8 @@ export async function analyzeChartData(
 
 export async function analyzeDocumentContent(
   structuredText: string,
-  customHeaders: Record<string, string>,
 ): Promise<ContentAnalysis> {
   const result = await callJson(
-    customHeaders,
     '你是专业的中文内容分析编辑。所有结论、发现、风险与建议都必须能在原文中找到依据，不得补写原文不存在的事实。',
     documentPrompt(
       '本阶段只完成“内容解析”任务。输出章节结构、核心结论、关键发现、风险提示，并基于原文给出审慎建议。原文没有明确风险时 risks 返回空数组，不要强行寻找风险。仅输出 JSON：{"sections":[{"title":"章节名","summary":"本节要点"}],"coreConclusions":["..."],"keyFindings":["..."],"risks":["..."],"suggestions":["..."]}。不要输出 Markdown，不要生成摘要、关键词或图表。',
